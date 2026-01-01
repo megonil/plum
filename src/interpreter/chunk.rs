@@ -1,11 +1,17 @@
-use crate::value::Value;
+use crate::{
+	error::{DisasmError::*, DisasmResult},
+	value::Value,
+};
 
 use super::opcodes::OpCode;
+
+pub type Line = usize;
 
 #[derive(Clone)]
 pub struct Chunk {
 	pub code: Vec<u8>,
 	pub constants: Vec<Value>,
+	pub lines: Vec<Line>,
 }
 
 macro_rules! from_u24 {
@@ -17,7 +23,7 @@ macro_rules! from_u24 {
 macro_rules! opname {
 	($offset:expr, $code:expr) => {
 		OpCode::n($code[$offset])
-			.expect("Not an instruction")
+			.ok_or(UnknownOpCode($code[$offset].into()))?
 			.to_string()
 	};
 }
@@ -27,19 +33,23 @@ impl Chunk {
 		Self {
 			code: vec![],
 			constants: vec![],
+			lines: vec![0],
 		}
 	}
 
+	#[inline(always)]
 	pub fn emit_byte(&mut self, opcode: OpCode) {
 		self.code.push(opcode as u8);
 	}
 
+	#[inline(always)]
 	fn add_constant(&mut self, value: Value) -> usize {
 		self.constants.push(value);
 
 		return self.constants.len() - 1;
 	}
 
+	#[inline(always)]
 	pub fn emit_bytes(&mut self, bytes: &[u8]) {
 		self.code.extend_from_slice(bytes);
 	}
@@ -65,45 +75,47 @@ impl Chunk {
 	}
 
 	// disassembler
-
-	pub fn disassemble(&self) {
+	pub fn disassemble(&self) -> DisasmResult<()> {
 		let mut offset: usize = 0;
 		let mut is_wide: bool = false;
 
 		while offset < self.code.len() {
-			is_wide = self.instruction(&mut offset, is_wide);
+			is_wide = self.instruction(&mut offset, is_wide)?;
 		}
+
+		Ok(())
 	}
 
-	pub fn instruction(&self, offset: &mut usize, is_wide: bool) -> bool {
+	pub fn instruction(&self, offset: &mut usize, is_wide: bool) -> DisasmResult<bool> {
 		if *offset >= self.code.len() {
-			return false;
+			return Ok(false);
 		}
 
 		if let Some(opcode) = OpCode::n(self.code[*offset]) {
 			match opcode {
-				OpCode::Constant => self.constant_instruction(offset, is_wide),
+				OpCode::Constant => self.constant_instruction(offset, is_wide)?,
 				OpCode::Wide => {
-					self.simple_instruction(offset);
-					return true;
+					self.simple_instruction(offset)?;
+					return Ok(true);
 				}
 
-				_ => self.simple_instruction(offset),
+				_ => self.simple_instruction(offset)?,
 			};
 		} else {
 			println!("{} UNKNOWN", *offset);
 		}
 
-		return false;
+		return Ok(false);
 	}
 
-	fn simple_instruction(&self, offset: &mut usize) {
+	fn simple_instruction(&self, offset: &mut usize) -> DisasmResult<()> {
 		println!("{} {}", *offset, opname!(*offset, self.code));
 
 		*offset += 1;
+		Ok(())
 	}
 
-	fn constant_instruction(&self, offset: &mut usize, is_wide: bool) {
+	fn constant_instruction(&self, offset: &mut usize, is_wide: bool) -> DisasmResult<()> {
 		let jump: usize;
 		let index: usize;
 
@@ -128,5 +140,6 @@ impl Chunk {
 		);
 
 		*offset += jump;
+		Ok(())
 	}
 }

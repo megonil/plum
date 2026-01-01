@@ -1,20 +1,31 @@
 use chunk::Chunk;
 use opcodes::OpCode;
 
-use crate::value::Value;
+use crate::{
+	error::{RuntimeError::*, RuntimeResult},
+	value::{PlumInt, Value},
+};
 
 #[macro_use]
 pub mod chunk;
 pub mod opcodes;
 
 macro_rules! bin_op {
-    ($self:ident, $op:tt $(,)?) => {
-        {
-            let b = $self.stack.pop().expect("Stack underflow");
-            let a = $self.stack.pop().expect("Stack underflow");
-            $self.stack.push(a $op b);
-        }
-    };
+	($self:ident, $op:tt $(,)?) => {{
+		let b = safepop!($self);
+		let a = safepop!($self);
+
+		$self.stack.push(a $op b);
+	}};
+}
+
+macro_rules! safepop {
+	($self:ident) => {
+		$self
+			.stack
+			.pop()
+			.ok_or(StackUnderflow($self.current_line()))?
+	};
 }
 
 pub struct VM<'a> {
@@ -22,7 +33,6 @@ pub struct VM<'a> {
 	pc: usize,
 	stack: Vec<Value>,
 }
-
 impl<'a> VM<'a> {
 	pub fn new(chunk: &'a Chunk) -> Self {
 		Self {
@@ -52,13 +62,19 @@ impl<'a> VM<'a> {
 		}
 	}
 
-	pub fn execute(&mut self) {
+	#[inline(always)]
+	fn current_line(&self) -> usize {
+		// placeholder
+		0
+	}
+
+	pub fn execute(&mut self) -> RuntimeResult<()> {
 		let mut is_wide: bool = false;
 		let mut index: usize = 0;
 
 		loop {
 			if self.pc >= self.chunk.code.len() {
-				break;
+				return Ok(());
 			}
 			let byte = self.read_byte();
 
@@ -77,27 +93,41 @@ impl<'a> VM<'a> {
 					OpCode::Add => bin_op!(self,+),
 					OpCode::Sub => bin_op!(self,-),
 					OpCode::Mul => bin_op!(self,*),
-					OpCode::Div => bin_op!(self,/),
 					OpCode::Mod => bin_op!(self,%),
+					OpCode::Div => {
+						let b = safepop!(self);
+						let a = safepop!(self);
+
+						let result = a / b;
+						self.stack.push(result?);
+					}
 
 					OpCode::IDiv => {
-						let b = self.stack.pop();
-						let a = self.stack.pop();
-					}
-					OpCode::Pow => {
-						let b = self.stack.pop().expect("Stack underflow");
-						let a = self.stack.pop().expect("Stack underflow");
+						let b = safepop!(self);
+						let a = safepop!(self);
 
-						let result = a.pow(b);
-						if let Some(r) = result {
-							self.stack.push(r);
-						} else {
-							panic!();
-						}
+						let result = (a / b)?;
+
+						let int_val: PlumInt = match result {
+							Value::Num(x) => x as PlumInt,
+							Value::Int(a) => a,
+						};
+
+						self.stack.push(Value::Int(int_val));
 					}
+
+					OpCode::Pow => {
+						let b = safepop!(self);
+						let a = safepop!(self);
+
+						let result = a.pow(b)?;
+						self.stack.push(result);
+					}
+
 					OpCode::Jmp => todo!(),
 					OpCode::Jmpf => todo!(),
 					OpCode::Return => todo!(),
+
 					OpCode::Print => {
 						println!("{}", self.stack.pop().expect("Stack underflow"));
 					}

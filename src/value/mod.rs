@@ -1,7 +1,9 @@
 use std::fmt::Display;
 
-type PlumInt = i32;
-type PlumFloat = f64;
+use crate::error::{ValueError::*, ValueResult};
+
+pub type PlumInt = i32;
+pub type PlumFloat = f64;
 
 #[derive(Clone, Copy)]
 pub enum ObjType {
@@ -22,8 +24,8 @@ pub(crate) enum Value {
 }
 
 impl Value {
-	pub fn pow(self, rhs: Value) -> Option<Value> {
-		Some(self.binop(rhs, |a, b| a.pow(b.try_into().unwrap()), |a, b| a.powf(b)))
+	pub fn pow(self, rhs: Value) -> ValueResult<Value> {
+		Ok(self.binop(rhs, |a, b| a.pow(b.try_into().unwrap()), |a, b| a.powf(b)))
 	}
 
 	fn binop<FInt, FFloat>(self, rhs: Value, int_op: FInt, float_op: FFloat) -> Value
@@ -62,6 +64,7 @@ macro_rules! impl_binop {
     ($Trait:ident, $method:ident, $op:tt) => {
         impl std::ops::$Trait for Value {
             type Output = Value;
+
             fn $method(self, rhs: Self) -> Self::Output {
                 self.binop(rhs, |a, b| a $op b, |x, y| x $op y)
             }
@@ -72,5 +75,20 @@ macro_rules! impl_binop {
 impl_binop!(Add, add, +);
 impl_binop!(Sub, sub, -);
 impl_binop!(Mul, mul, *);
-impl_binop!(Div, div, /);
 impl_binop!(Rem, rem, %);
+
+impl std::ops::Div for Value {
+	type Output = ValueResult<Value>;
+
+	fn div(self, rhs: Self) -> Self::Output {
+		match (self, rhs) {
+			(_, Value::Int(0)) => Err(FloatPointException()),
+			(_, Value::Num(0.0)) => Err(FloatPointException()),
+
+			(Value::Int(a), Value::Int(b)) => Ok(Value::Num(a as PlumFloat / b as PlumFloat)),
+			(Value::Int(a), Value::Num(b)) => Ok(Value::Num(a as PlumFloat / b)),
+			(Value::Num(a), Value::Num(b)) => Ok(Value::Num(a / b)),
+			(Value::Num(a), Value::Int(b)) => Ok(Value::Num(a / b as PlumFloat)),
+		}
+	}
+}
