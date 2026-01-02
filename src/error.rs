@@ -10,6 +10,9 @@ pub enum InterpreterError {
 
 	#[error("Disassembler error: {0}")]
 	DisasmError(#[from] DisasmError),
+
+	#[error("{0}")]
+	ChunkError(#[from] ChunkError),
 }
 
 #[derive(Error, Debug)]
@@ -34,6 +37,12 @@ pub enum DisasmError {
 }
 
 #[derive(Error, Debug)]
+pub enum ChunkError {
+	#[error("Too many code to jump over")]
+	TooManyCodeToJump,
+}
+
+#[derive(Error, Debug)]
 pub enum ValueError {
 	#[error("FloatPointException: division by 0")]
 	FloatPointException(),
@@ -43,3 +52,4 @@ pub type InterpreterResult<T> = Result<T, InterpreterError>;
 pub type DisasmResult<T> = Result<T, DisasmError>;
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
 pub type ValueResult<T> = Result<T, ValueError>;
+pub type ChunkResult<T> = Result<T, ChunkError>;

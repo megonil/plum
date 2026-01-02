@@ -1,7 +1,5 @@
-use crate::{
-	error::{DisasmError::*, DisasmResult},
-	value::Value,
-};
+use crate::error::{ChunkError, ChunkResult, DisasmError::*, DisasmResult};
+use crate::value::Value;
 
 use super::opcodes::OpCode;
 
@@ -74,6 +72,56 @@ impl Chunk {
 		}
 	}
 
+	#[inline(always)]
+	pub fn patch_code(&mut self, index: usize, value: u8) {
+		self.code[index] = value;
+	}
+
+	#[inline(always)]
+	pub fn is_wide(&self) -> bool {
+		self.code[self.code.len() - 1] == OpCode::Wide as u8
+	}
+
+	#[inline(always)]
+	pub fn emit_pop(&mut self) {
+		self.emit_byte(OpCode::Pop);
+	}
+
+	#[inline(always)]
+	pub fn emit_return(&mut self) {
+		self.emit_byte(OpCode::Return);
+	}
+
+	#[inline(always)]
+	/// starts an jump
+	/// you will need to call a end_jump where you want to jump
+	/// return pointer to the minor byte of the 2-byte argument
+	pub fn start_jump(&mut self, jmp: OpCode) -> usize {
+		self.emit_bytes(&[jmp as u8, 0xFF, 0xFF]);
+
+		return self.code.len() - 1;
+	}
+
+	pub fn end_jump(&mut self, jmp_idx: usize) -> ChunkResult<()> {
+		let next_instruction = jmp_idx + 1;
+		let len = self.code.len();
+
+		let offset = len - next_instruction;
+
+		if offset > i16::MAX as usize {
+			return Err(ChunkError::TooManyCodeToJump);
+		}
+
+		let val = offset as u16;
+		let minor = ((val >> 8) & 0xFF) as u8;
+		let major = (val & 0xFF) as u8;
+
+		self.patch_code(jmp_idx - 1, major);
+		self.patch_code(jmp_idx, minor);
+
+		Ok(())
+	}
+
 	// disassembler
 	pub fn disassemble(&self) -> DisasmResult<()> {
 		let mut offset: usize = 0;
@@ -98,18 +146,34 @@ impl Chunk {
 					self.simple_instruction(offset)?;
 					return Ok(true);
 				}
-
+				OpCode::Jmp | OpCode::Jmpf => self.i16_arg_instruction(offset)?,
 				_ => self.simple_instruction(offset)?,
 			};
 		} else {
-			println!("{} UNKNOWN", *offset);
+			println!("{:>4} UNKNOWN", *offset);
+			*offset += 1;
 		}
 
 		return Ok(false);
 	}
 
+	fn i16_arg_instruction(&self, offset: &mut usize) -> DisasmResult<()> {
+		println!(
+			"{:>4} {} {}",
+			*offset,
+			opname!(*offset, self.code),
+			(self.code[*offset + 1] as u16 | ((self.code[*offset + 2] as u16) << 8)) as i16
+				+ *offset as i16
+				+ 3
+		);
+
+		*offset += 3;
+
+		Ok(())
+	}
+
 	fn simple_instruction(&self, offset: &mut usize) -> DisasmResult<()> {
-		println!("{} {}", *offset, opname!(*offset, self.code));
+		println!("{:>4} {}", *offset, opname!(*offset, self.code));
 
 		*offset += 1;
 		Ok(())
@@ -132,7 +196,7 @@ impl Chunk {
 		}
 
 		println!(
-			"{} {} {} ({})",
+			"{:>4} {} {} ({})",
 			*offset,
 			opname!(*offset, self.code),
 			index,

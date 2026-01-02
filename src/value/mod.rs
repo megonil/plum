@@ -92,3 +92,12 @@ impl std::ops::Div for Value {
 		}
 	}
 }
+
+impl Into<bool> for Value {
+	fn into(self) -> bool {
+		match self {
+			Value::Int(a) => a != 0,
+			Value::Num(b) => b != 0.0,
+		}
+	}
+}

@@ -6,6 +6,7 @@ pub enum OpCode {
 	// main// push from chunk.constants[arg]
 	Constant = 1,
 	Wide,
+	Pop,
 
 	// operators
 	// share the same logic:
